@@ -20,6 +20,8 @@ import {
   Pill,
   AlertTriangle,
   BarChart3,
+  Store,
+  User,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -64,6 +66,16 @@ const data = {
       url: "/dashboard/medicines",
       icon: Pill,
     },
+    {
+      title: "Pharmacies",
+      url: "/dashboard/pharmacies",
+      icon: Store,
+    },
+    {
+      title: "Profile",
+      url: "/dashboard/profile",
+      icon: User,
+    },    
     {
       title: "Inventory",
       url: "/dashboard/inventory",

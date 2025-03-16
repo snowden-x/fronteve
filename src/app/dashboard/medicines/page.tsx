@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import {
   ChevronDownIcon,
   MoreHorizontalIcon,
   PlusCircleIcon,
   SearchIcon,
+  Loader2Icon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -40,71 +41,51 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-
-// Mock data for medicines
-const medicines = [
-  {
-    id: 1,
-    name: "Paracetamol",
-    generic_name: "Acetaminophen",
-    manufacturer: "PharmaCorp",
-    dosage_form: "Tablet",
-    strength: "500mg",
-    requires_prescription: false,
-    fda_approved: true,
-  },
-  {
-    id: 2,
-    name: "Amoxicillin",
-    generic_name: "Amoxicillin",
-    manufacturer: "MediLabs",
-    dosage_form: "Capsule",
-    strength: "250mg",
-    requires_prescription: true,
-    fda_approved: true,
-  },
-  {
-    id: 3,
-    name: "Ibuprofen",
-    generic_name: "Ibuprofen",
-    manufacturer: "HealthPharm",
-    dosage_form: "Tablet",
-    strength: "200mg",
-    requires_prescription: false,
-    fda_approved: true,
-  },
-  {
-    id: 4,
-    name: "Lisinopril",
-    generic_name: "Lisinopril",
-    manufacturer: "CardioMed",
-    dosage_form: "Tablet",
-    strength: "10mg",
-    requires_prescription: true,
-    fda_approved: true,
-  },
-  {
-    id: 5,
-    name: "Metformin",
-    generic_name: "Metformin Hydrochloride",
-    manufacturer: "DiabeCare",
-    dosage_form: "Tablet",
-    strength: "500mg",
-    requires_prescription: true,
-    fda_approved: true,
-  },
-]
+import { medicinesApi, Medicine, MedicineFilters } from "@/lib/api"
 
 export default function MedicinesPage() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
+  const [medicines, setMedicines] = useState<Medicine[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [filterType, setFilterType] = useState("all")
+  const [totalCount, setTotalCount] = useState(0)
   
-  // Filter medicines based on search query
-  const filteredMedicines = medicines.filter(medicine => 
-    medicine.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    medicine.generic_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    medicine.manufacturer.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  // Fetch medicines from API
+  useEffect(() => {
+    const fetchMedicines = async () => {
+      try {
+        setLoading(true)
+        const filters: MedicineFilters = { search: searchQuery }
+        
+        // Add prescription filter if needed
+        if (filterType === "prescription") {
+          filters.requires_prescription = true
+        } else if (filterType === "otc") {
+          filters.requires_prescription = false
+        }
+        
+        const response = await medicinesApi.getMedicines(filters)
+        setMedicines(response.results)
+        setTotalCount(response.count)
+        setError(null)
+      } catch (err) {
+        console.error("Failed to fetch medicines:", err)
+        setError("Failed to load medicines. Please try again.")
+        setMedicines([])
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    // Debounce search to avoid too many API calls
+    const timer = setTimeout(() => {
+      fetchMedicines()
+    }, 300)
+    
+    return () => clearTimeout(timer)
+  }, [searchQuery, filterType])
 
   return (
     <div className="flex flex-col gap-6">
@@ -135,7 +116,10 @@ export default function MedicinesPage() {
               />
             </div>
             <div className="flex items-center gap-2">
-              <Select defaultValue="all">
+              <Select 
+                defaultValue="all" 
+                onValueChange={(value) => setFilterType(value)}
+              >
                 <SelectTrigger className="h-9 w-[180px]">
                   <SelectValue placeholder="Filter by type" />
                 </SelectTrigger>
@@ -147,6 +131,12 @@ export default function MedicinesPage() {
               </Select>
             </div>
           </div>
+          
+          {error && (
+            <div className="rounded-md bg-destructive/15 p-4 mb-4">
+              <p className="text-destructive">{error}</p>
+            </div>
+          )}
           
           <div className="rounded-md border">
             <Table>
@@ -163,50 +153,76 @@ export default function MedicinesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredMedicines.map((medicine) => (
-                  <TableRow key={medicine.id}>
-                    <TableCell className="font-medium">{medicine.name}</TableCell>
-                    <TableCell>{medicine.generic_name}</TableCell>
-                    <TableCell>{medicine.manufacturer}</TableCell>
-                    <TableCell>{medicine.dosage_form}</TableCell>
-                    <TableCell>{medicine.strength}</TableCell>
-                    <TableCell>
-                      {medicine.requires_prescription ? (
-                        <Badge variant="destructive">Required</Badge>
-                      ) : (
-                        <Badge variant="outline">Not Required</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {medicine.fda_approved ? (
-                        <Badge variant="secondary">Approved</Badge>
-                      ) : (
-                        <Badge variant="outline">Pending</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontalIcon className="h-4 w-4" />
-                            <span className="sr-only">Open menu</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/dashboard/medicines/${medicine.id}`)}>
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => router.push(`/dashboard/medicines/${medicine.id}/edit`)}>
-                            Edit
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-24 text-center">
+                      <div className="flex items-center justify-center">
+                        <Loader2Icon className="h-6 w-6 animate-spin mr-2" />
+                        <span>Loading medicines...</span>
+                      </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : medicines.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-24 text-center">
+                      No medicines found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  medicines.map((medicine) => (
+                    <TableRow key={medicine.id}>
+                      <TableCell className="font-medium">{medicine.name}</TableCell>
+                      <TableCell>{medicine.generic_name}</TableCell>
+                      <TableCell>{medicine.manufacturer}</TableCell>
+                      <TableCell>{medicine.dosage_form}</TableCell>
+                      <TableCell>{medicine.strength}</TableCell>
+                      <TableCell>
+                        {medicine.requires_prescription ? (
+                          <Badge variant="destructive">Required</Badge>
+                        ) : (
+                          <Badge variant="outline">Not Required</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {medicine.fda_approved ? (
+                          <Badge variant="secondary">Approved</Badge>
+                        ) : (
+                          <Badge variant="outline">Pending</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontalIcon className="h-4 w-4" />
+                              <span className="sr-only">Open menu</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => router.push(`/dashboard/medicines/${medicine.id}`)}>
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => router.push(`/dashboard/medicines/${medicine.id}/edit`)}>
+                              Edit
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
+          
+          {!loading && medicines.length > 0 && (
+            <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
+              <div>
+                Showing {medicines.length} of {totalCount} medicines
+              </div>
+              {/* Pagination could be added here */}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

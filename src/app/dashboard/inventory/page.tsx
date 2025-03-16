@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import {
   ChevronDownIcon,
@@ -8,6 +8,7 @@ import {
   PlusCircleIcon,
   SearchIcon,
   AlertTriangleIcon,
+  Loader2Icon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -42,128 +43,85 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-
-// Mock data for inventory
-const inventory = [
-  {
-    id: 1,
-    medicine: {
-      id: 1,
-      name: "Paracetamol",
-      strength: "500mg",
-      dosage_form: "Tablet",
-    },
-    pharmacy: {
-      id: 1,
-      name: "Main Pharmacy",
-    },
-    quantity: 250,
-    min_stock_level: 50,
-    max_stock_level: 300,
-    unit_price: 0.50,
-    cost_price: 0.30,
-    last_updated: "2023-03-10T14:30:00Z",
-  },
-  {
-    id: 2,
-    medicine: {
-      id: 2,
-      name: "Amoxicillin",
-      strength: "250mg",
-      dosage_form: "Capsule",
-    },
-    pharmacy: {
-      id: 1,
-      name: "Main Pharmacy",
-    },
-    quantity: 120,
-    min_stock_level: 30,
-    max_stock_level: 200,
-    unit_price: 1.20,
-    cost_price: 0.80,
-    last_updated: "2023-03-12T09:15:00Z",
-  },
-  {
-    id: 3,
-    medicine: {
-      id: 3,
-      name: "Ibuprofen",
-      strength: "200mg",
-      dosage_form: "Tablet",
-    },
-    pharmacy: {
-      id: 1,
-      name: "Main Pharmacy",
-    },
-    quantity: 45,
-    min_stock_level: 50,
-    max_stock_level: 250,
-    unit_price: 0.75,
-    cost_price: 0.45,
-    last_updated: "2023-03-14T11:20:00Z",
-  },
-  {
-    id: 4,
-    medicine: {
-      id: 4,
-      name: "Lisinopril",
-      strength: "10mg",
-      dosage_form: "Tablet",
-    },
-    pharmacy: {
-      id: 1,
-      name: "Main Pharmacy",
-    },
-    quantity: 180,
-    min_stock_level: 40,
-    max_stock_level: 200,
-    unit_price: 1.50,
-    cost_price: 1.10,
-    last_updated: "2023-03-11T16:45:00Z",
-  },
-  {
-    id: 5,
-    medicine: {
-      id: 5,
-      name: "Metformin",
-      strength: "500mg",
-      dosage_form: "Tablet",
-    },
-    pharmacy: {
-      id: 1,
-      name: "Main Pharmacy",
-    },
-    quantity: 15,
-    min_stock_level: 30,
-    max_stock_level: 150,
-    unit_price: 0.90,
-    cost_price: 0.60,
-    last_updated: "2023-03-13T10:30:00Z",
-  },
-]
+import { inventoryApi, InventoryWithDetails, InventoryFilters } from "@/lib/api"
 
 export default function InventoryPage() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
+  const [inventory, setInventory] = useState<InventoryWithDetails[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [filterStatus, setFilterStatus] = useState("all")
+  const [totalCount, setTotalCount] = useState(0)
+  const [inventoryStats, setInventoryStats] = useState({
+    totalItems: 0,
+    lowStockItems: 0,
+    inventoryValue: 0,
+  })
   
-  // Filter inventory based on search query
-  const filteredInventory = inventory.filter(item => 
-    item.medicine.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  // Fetch inventory from API
+  useEffect(() => {
+    const fetchInventory = async () => {
+      try {
+        setLoading(true)
+        const filters: InventoryFilters = { search: searchQuery }
+        
+        // Add low stock filter if needed
+        if (filterStatus === "low") {
+          filters.low_stock = true
+        }
+        
+        const response = await inventoryApi.getInventory(filters)
+        setInventory(response.results)
+        setTotalCount(response.count)
+        
+        // Calculate stats
+        const lowStockCount = response.results.filter(item => 
+          item.quantity <= item.min_stock_level
+        ).length
+        
+        const totalValue = response.results.reduce(
+          (total, item) => total + (item.quantity * item.cost_price), 
+          0
+        )
+        
+        setInventoryStats({
+          totalItems: response.count,
+          lowStockItems: lowStockCount,
+          inventoryValue: totalValue,
+        })
+        
+        setError(null)
+      } catch (err) {
+        console.error("Failed to fetch inventory:", err)
+        setError("Failed to load inventory. Please try again.")
+        setInventory([])
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    // Debounce search to avoid too many API calls
+    const timer = setTimeout(() => {
+      fetchInventory()
+    }, 300)
+    
+    return () => clearTimeout(timer)
+  }, [searchQuery, filterStatus])
 
   // Calculate stock status
-  const getStockStatus = (item) => {
+  const getStockStatus = (item: InventoryWithDetails) => {
     if (item.quantity <= item.min_stock_level) {
-      return { status: "low", label: "Low Stock", variant: "destructive" }
+      return { status: "low", label: "Low Stock", variant: "destructive" as const }
     } else if (item.quantity >= item.max_stock_level) {
-      return { status: "excess", label: "Excess Stock", variant: "secondary" }
+      return { status: "excess", label: "Excess Stock", variant: "secondary" as const }
     } else {
-      return { status: "normal", label: "In Stock", variant: "default" }
+      return { status: "normal", label: "In Stock", variant: "default" as const }
     }
   }
 
   // Calculate stock percentage
-  const getStockPercentage = (item) => {
+  const getStockPercentage = (item: InventoryWithDetails) => {
     return Math.min(Math.round((item.quantity / item.max_stock_level) * 100), 100)
   }
 
@@ -188,7 +146,9 @@ export default function InventoryPage() {
             <CardTitle className="text-sm font-medium">Total Items</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{inventory.length}</div>
+            <div className="text-2xl font-bold">
+              {loading ? <Loader2Icon className="h-5 w-5 animate-spin" /> : inventoryStats.totalItems}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -197,7 +157,7 @@ export default function InventoryPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-500">
-              {inventory.filter(item => item.quantity <= item.min_stock_level).length}
+              {loading ? <Loader2Icon className="h-5 w-5 animate-spin" /> : inventoryStats.lowStockItems}
             </div>
           </CardContent>
         </Card>
@@ -207,7 +167,11 @@ export default function InventoryPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${inventory.reduce((total, item) => total + (item.quantity * item.cost_price), 0).toFixed(2)}
+              {loading ? (
+                <Loader2Icon className="h-5 w-5 animate-spin" />
+              ) : (
+                `$${inventoryStats.inventoryValue.toFixed(2)}`
+              )}
             </div>
           </CardContent>
         </Card>
@@ -232,7 +196,10 @@ export default function InventoryPage() {
               />
             </div>
             <div className="flex items-center gap-2">
-              <Select defaultValue="all">
+              <Select 
+                defaultValue="all"
+                onValueChange={(value) => setFilterStatus(value)}
+              >
                 <SelectTrigger className="h-9 w-[180px]">
                   <SelectValue placeholder="Filter by status" />
                 </SelectTrigger>
@@ -245,6 +212,12 @@ export default function InventoryPage() {
               </Select>
             </div>
           </div>
+          
+          {error && (
+            <div className="rounded-md bg-destructive/15 p-4 mb-4">
+              <p className="text-destructive">{error}</p>
+            </div>
+          )}
           
           <div className="rounded-md border">
             <Table>
@@ -261,60 +234,86 @@ export default function InventoryPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredInventory.map((item) => {
-                  const stockStatus = getStockStatus(item)
-                  const stockPercentage = getStockPercentage(item)
-                  
-                  return (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium">
-                        {item.medicine.name} {item.medicine.strength}
-                      </TableCell>
-                      <TableCell>{item.medicine.dosage_form}</TableCell>
-                      <TableCell>{item.pharmacy.name}</TableCell>
-                      <TableCell>{item.quantity}</TableCell>
-                      <TableCell className="w-[180px]">
-                        <div className="flex flex-col gap-1">
-                          <Progress value={stockPercentage} className="h-2" />
-                          <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>{item.min_stock_level}</span>
-                            <span>{item.max_stock_level}</span>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-24 text-center">
+                      <div className="flex items-center justify-center">
+                        <Loader2Icon className="h-6 w-6 animate-spin mr-2" />
+                        <span>Loading inventory...</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : inventory.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-24 text-center">
+                      No inventory items found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  inventory.map((item) => {
+                    const stockStatus = getStockStatus(item)
+                    const stockPercentage = getStockPercentage(item)
+                    
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">
+                          {item.medicine.name} {item.medicine.strength}
+                        </TableCell>
+                        <TableCell>{item.medicine.dosage_form}</TableCell>
+                        <TableCell>{item.pharmacy.name}</TableCell>
+                        <TableCell>{item.quantity}</TableCell>
+                        <TableCell className="w-[180px]">
+                          <div className="flex flex-col gap-1">
+                            <Progress value={stockPercentage} className="h-2" />
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>{item.min_stock_level}</span>
+                              <span>{item.max_stock_level}</span>
+                            </div>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>${item.unit_price.toFixed(2)}</TableCell>
-                      <TableCell>
-                        <Badge variant={stockStatus.variant}>
-                          {stockStatus.status === "low" && (
-                            <AlertTriangleIcon className="mr-1 h-3 w-3" />
-                          )}
-                          {stockStatus.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontalIcon className="h-4 w-4" />
-                              <span className="sr-only">Open menu</span>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => router.push(`/dashboard/inventory/${item.id}`)}>
-                              View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => router.push(`/dashboard/inventory/${item.id}/adjust`)}>
-                              Adjust Stock
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
+                        </TableCell>
+                        <TableCell>${item.unit_price.toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Badge variant={stockStatus.variant}>
+                            {stockStatus.status === "low" && (
+                              <AlertTriangleIcon className="mr-1 h-3 w-3" />
+                            )}
+                            {stockStatus.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontalIcon className="h-4 w-4" />
+                                <span className="sr-only">Open menu</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => router.push(`/dashboard/inventory/${item.id}`)}>
+                                View Details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push(`/dashboard/inventory/${item.id}/adjust`)}>
+                                Adjust Stock
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
               </TableBody>
             </Table>
           </div>
+          
+          {!loading && inventory.length > 0 && (
+            <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
+              <div>
+                Showing {inventory.length} of {totalCount} inventory items
+              </div>
+              {/* Pagination could be added here */}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

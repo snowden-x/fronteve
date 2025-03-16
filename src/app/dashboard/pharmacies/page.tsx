@@ -32,27 +32,41 @@ import { Badge } from "@/components/ui/badge";
 import { 
   SearchIcon, 
   MoreHorizontalIcon, 
-  UserPlusIcon, 
+  BuildingIcon, 
   Loader2Icon,
-  UserIcon,
-  PencilIcon
+  PencilIcon,
+  TrashIcon,
+  UsersIcon,
+  PlusCircleIcon
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { usersApi, UserListResponse } from "@/lib/api";
-import { User, UserRole } from "@/lib/types";
+import { pharmaciesApi, Pharmacy } from "@/lib/api";
+import { UserRole } from "@/lib/types";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
-export default function UsersPage() {
+export default function PharmaciesPage() {
   const { user } = useAuth();
   const router = useRouter();
-  const [users, setUsers] = useState<User[]>([]);
+  const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [totalCount, setTotalCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   // Only admin should access this page
   if (user && user.role !== UserRole.PHARMACY_STAFF) {
@@ -64,23 +78,25 @@ export default function UsersPage() {
     );
   }
 
-  // Fetch users from API
+  // Fetch pharmacies from API
   useEffect(() => {
-    const fetchUsers = async () => {
+    const fetchPharmacies = async () => {
       try {
         setLoading(true);
-        const filters: { search?: string; role?: string; page?: number } = { 
+        const filters: { search?: string; is_active?: boolean; page?: number } = { 
           search: searchQuery,
           page: currentPage
         };
         
-        // Add role filter if needed
-        if (roleFilter !== "all") {
-          filters.role = roleFilter;
+        // Add status filter if needed
+        if (statusFilter === "active") {
+          filters.is_active = true;
+        } else if (statusFilter === "inactive") {
+          filters.is_active = false;
         }
         
-        const response = await usersApi.getUsers(filters);
-        setUsers(response.results);
+        const response = await pharmaciesApi.getPharmacies(filters);
+        setPharmacies(response.results);
         setTotalCount(response.count);
         
         // Calculate total pages
@@ -89,9 +105,9 @@ export default function UsersPage() {
         
         setError(null);
       } catch (err) {
-        console.error("Failed to fetch users:", err);
-        setError("Failed to load users. Please try again.");
-        setUsers([]);
+        console.error("Failed to fetch pharmacies:", err);
+        setError("Failed to load pharmacies. Please try again.");
+        setPharmacies([]);
       } finally {
         setLoading(false);
       }
@@ -99,11 +115,11 @@ export default function UsersPage() {
     
     // Debounce search to avoid too many API calls
     const timer = setTimeout(() => {
-      fetchUsers();
+      fetchPharmacies();
     }, 300);
     
     return () => clearTimeout(timer);
-  }, [searchQuery, roleFilter, currentPage]);
+  }, [searchQuery, statusFilter, currentPage]);
 
   // Format date
   const formatDate = (dateString: string) => {
@@ -116,15 +132,33 @@ export default function UsersPage() {
     });
   };
 
-  // Get role badge variant
-  const getRoleBadgeVariant = (role: string) => {
-    switch (role) {
-      case UserRole.ADMIN:
-        return "destructive";
-      case UserRole.PHARMACY_STAFF:
-        return "secondary";
-      default:
-        return "outline";
+  // Handle pharmacy deletion
+  const handleDelete = async (id: number) => {
+    try {
+      setDeletingId(id);
+      await pharmaciesApi.deletePharmacy(id);
+      toast.success("Pharmacy deleted successfully");
+      
+      // Refresh the list
+      const filters: { search?: string; is_active?: boolean; page?: number } = { 
+        search: searchQuery,
+        page: currentPage
+      };
+      
+      if (statusFilter === "active") {
+        filters.is_active = true;
+      } else if (statusFilter === "inactive") {
+        filters.is_active = false;
+      }
+      
+      const response = await pharmaciesApi.getPharmacies(filters);
+      setPharmacies(response.results);
+      setTotalCount(response.count);
+    } catch (error) {
+      console.error("Failed to delete pharmacy:", error);
+      toast.error("Failed to delete pharmacy");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -139,18 +173,18 @@ export default function UsersPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Users Management</h1>
-        <Button onClick={() => router.push("/dashboard/users/new")}>
-          <UserPlusIcon className="mr-2 h-4 w-4" />
-          Add User
+        <h1 className="text-3xl font-bold">Pharmacies Management</h1>
+        <Button onClick={() => router.push("/dashboard/pharmacies/new")}>
+          <PlusCircleIcon className="mr-2 h-4 w-4" />
+          Add Pharmacy
         </Button>
       </div>
       
       <Card>
         <CardHeader>
-          <CardTitle>User List</CardTitle>
+          <CardTitle>Pharmacy List</CardTitle>
           <CardDescription>
-            Manage all registered users in the system
+            Manage all registered pharmacies in the system
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -158,7 +192,7 @@ export default function UsersPage() {
             <div className="flex items-center gap-2 w-full max-w-sm">
               <SearchIcon className="h-4 w-4 opacity-50" />
               <Input
-                placeholder="Search users..."
+                placeholder="Search pharmacies..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-9"
@@ -167,16 +201,15 @@ export default function UsersPage() {
             <div className="flex items-center gap-2">
               <Select 
                 defaultValue="all" 
-                onValueChange={(value) => setRoleFilter(value)}
+                onValueChange={(value) => setStatusFilter(value)}
               >
                 <SelectTrigger className="h-9 w-[180px]">
-                  <SelectValue placeholder="Filter by role" />
+                  <SelectValue placeholder="Filter by status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Users</SelectItem>
-                  <SelectItem value={UserRole.ADMIN}>Administrators</SelectItem>
-                  <SelectItem value={UserRole.PHARMACY_STAFF}>Staff</SelectItem>
-                  <SelectItem value={UserRole.CUSTOMER}>Customers</SelectItem>
+                  <SelectItem value="all">All Pharmacies</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -191,12 +224,12 @@ export default function UsersPage() {
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2Icon className="h-8 w-8 animate-spin mr-2" />
-              <span>Loading users...</span>
+              <span>Loading pharmacies...</span>
             </div>
-          ) : users.length === 0 ? (
+          ) : pharmacies.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
-              <UserIcon className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium">No users found</h3>
+              <BuildingIcon className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-medium">No pharmacies found</h3>
               <p className="text-sm text-muted-foreground mt-1">
                 Try adjusting your search or filters.
               </p>
@@ -207,30 +240,31 @@ export default function UsersPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Username</TableHead>
                       <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Created</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Address</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Staff</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {users.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell className="font-medium">{user.username}</TableCell>
+                    {pharmacies.map((pharmacy) => (
+                      <TableRow key={pharmacy.id}>
+                        <TableCell className="font-medium">{pharmacy.name}</TableCell>
                         <TableCell>
-                          {user.first_name && user.last_name
-                            ? `${user.first_name} ${user.last_name}`
-                            : "N/A"}
+                          <div className="flex flex-col">
+                            <span>{pharmacy.contact_email}</span>
+                            <span className="text-muted-foreground text-sm">{pharmacy.contact_phone}</span>
+                          </div>
                         </TableCell>
-                        <TableCell>{user.email || "N/A"}</TableCell>
+                        <TableCell>{pharmacy.address}</TableCell>
                         <TableCell>
-                          <Badge variant={getRoleBadgeVariant(user.role)}>
-                            {user.role}
+                          <Badge variant={pharmacy.is_active ? "default" : "secondary"}>
+                            {pharmacy.is_active ? "Active" : "Inactive"}
                           </Badge>
                         </TableCell>
-                        <TableCell>{formatDate(user.created_at || "")}</TableCell>
+                        <TableCell>{pharmacy.staff?.length || 0} members</TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -243,17 +277,53 @@ export default function UsersPage() {
                               <DropdownMenuLabel>Actions</DropdownMenuLabel>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
-                                onClick={() => router.push(`/dashboard/users/${user.id}`)}
+                                onClick={() => router.push(`/dashboard/pharmacies/${pharmacy.id}`)}
                               >
-                                <UserIcon className="mr-2 h-4 w-4" />
+                                <BuildingIcon className="mr-2 h-4 w-4" />
                                 View Details
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                onClick={() => router.push(`/dashboard/users/${user.id}/edit`)}
+                                onClick={() => router.push(`/dashboard/pharmacies/${pharmacy.id}/edit`)}
                               >
                                 <PencilIcon className="mr-2 h-4 w-4" />
-                                Edit User
+                                Edit Pharmacy
                               </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => router.push(`/dashboard/pharmacies/${pharmacy.id}/staff`)}
+                              >
+                                <UsersIcon className="mr-2 h-4 w-4" />
+                                Manage Staff
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <DropdownMenuItem
+                                    onSelect={(e) => e.preventDefault()}
+                                    className="text-destructive focus:text-destructive"
+                                  >
+                                    <TrashIcon className="mr-2 h-4 w-4" />
+                                    Delete Pharmacy
+                                  </DropdownMenuItem>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This action cannot be undone. This will permanently delete the
+                                      pharmacy and remove it from the system.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => handleDelete(pharmacy.id)}
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    >
+                                      {deletingId === pharmacy.id ? "Deleting..." : "Delete"}
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -266,7 +336,7 @@ export default function UsersPage() {
               {/* Pagination */}
               <div className="flex items-center justify-between mt-4">
                 <p className="text-sm text-muted-foreground">
-                  Showing {users.length} of {totalCount} users
+                  Showing {pharmacies.length} of {totalCount} pharmacies
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
